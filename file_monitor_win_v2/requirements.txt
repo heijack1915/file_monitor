@@ -1,4 +1,0 @@
-# Windows File Monitor v2 Dependencies
-flask>=2.0.0
-watchdog>=3.0.0
-psutil>=5.9.0
