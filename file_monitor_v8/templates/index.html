@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📁 macOS 文件监控中心 v8</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0f0f23 0%, #1a1a3e 50%, #0f0f23 100%);
+            color: #fff;
+            min-height: 100vh;
+        }
+        .header {
+            background: rgba(0,0,0,0.4);
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .header h1 { font-size: 1.2rem; display: flex; align-items: center; gap: 10px; }
+        .status-badge { padding: 5px 15px; border-radius: 20px; font-size: 0.8rem; font-weight: bold; }
+        .status-badge.stopped { background: #e74c3c; }
+        .status-badge.running { background: #27ae60; animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+
+        .container { display: flex; gap: 15px; padding: 15px; max-width: 100%; }
+        .main { flex: 1; min-width: 0; }
+        .sidebar { width: 280px; flex-shrink: 0; }
+
+        .card {
+            background: rgba(255,255,255,0.03);
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.08);
+            margin-bottom: 15px;
+        }
+        .card-header {
+            padding: 12px 15px;
+            background: rgba(255,255,255,0.03);
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            font-size: 0.9rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .control-bar {
+            padding: 12px 15px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        .btn-primary:hover { transform: translateY(-1px); }
+        .btn-danger { background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white; }
+        .btn-secondary { background: rgba(255,255,255,0.1); color: white; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* 筛选区 */
+        .filter-section { padding: 15px; }
+        .filter-row { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+        .filter-group { flex: 1; min-width: 150px; }
+        .filter-group label { display: block; font-size: 0.75rem; color: #888; margin-bottom: 5px; }
+        .filter-group input, .filter-group select {
+            width: 100%;
+            padding: 8px 10px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 6px;
+            color: white;
+            font-size: 0.85rem;
+        }
+        .filter-group input:focus { outline: none; border-color: #667eea; }
+        .filter-tags { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 10px; }
+        .filter-tag {
+            padding: 4px 10px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 15px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            user-select: none;
+        }
+        .filter-tag.active { background: #667eea; }
+        .filter-actions { display: flex; gap: 8px; margin-top: 4px; }
+        .filter-actions .btn { flex: 1; }
+        .filter-active-hint {
+            display: none;
+            font-size: 0.72rem;
+            color: #f39c12;
+            margin-top: 6px;
+        }
+        .filter-active-hint.visible { display: block; }
+
+        /* 监控路径 */
+        .path-section { padding: 15px; }
+        .path-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 10px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 6px;
+            margin-bottom: 6px;
+            cursor: pointer;
+        }
+        .path-item:hover { background: rgba(255,255,255,0.08); }
+        .path-item input { width: 18px; height: 18px; cursor: pointer; }
+        .path-item span { font-size: 0.85rem; }
+        .path-item small { color: #666; font-size: 0.75rem; }
+        .path-item .remove-btn {
+            margin-left: auto;
+            background: none;
+            border: none;
+            color: #e74c3c;
+            cursor: pointer;
+            font-size: 0.85rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .path-item:hover .remove-btn { opacity: 1; }
+
+        .custom-path-section {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        .custom-path-section label {
+            font-size: 0.75rem;
+            color: #888;
+            display: block;
+            margin-bottom: 5px;
+        }
+        .custom-path-input { display: flex; gap: 5px; }
+        .custom-path-input input {
+            flex: 1;
+            padding: 6px 8px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 4px;
+            color: white;
+            font-size: 0.8rem;
+        }
+        .custom-path-input button {
+            padding: 6px 12px;
+            background: #667eea;
+            border: none;
+            border-radius: 4px;
+            color: white;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+        .quick-btns { margin-top: 8px; }
+        .quick-btns button {
+            padding: 5px 10px;
+            background: rgba(255,255,255,0.1);
+            border: none;
+            border-radius: 4px;
+            color: #888;
+            font-size: 0.7rem;
+            cursor: pointer;
+            margin-right: 5px;
+        }
+
+        /* SSE 状态 */
+        .sse-indicator {
+            font-size: 0.72rem;
+            color: #888;
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .sse-dot { width: 7px; height: 7px; border-radius: 50%; background: #666; }
+        .sse-dot.connected { background: #27ae60; }
+        .sse-dot.reconnecting { background: #f39c12; animation: pulse 1s infinite; }
+
+        /* 统计 */
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 15px; }
+        .stat-card { background: rgba(255,255,255,0.05); border-radius: 8px; padding: 12px; text-align: center; }
+        .stat-value { font-size: 1.5rem; font-weight: bold; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .stat-label { font-size: 0.75rem; color: #888; margin-top: 3px; }
+
+        /* 事件列表 */
+        .event-list { max-height: calc(100vh - 350px); overflow-y: auto; padding: 10px; }
+        .event-item {
+            display: grid;
+            grid-template-columns: 80px 70px 1fr;
+            gap: 10px;
+            padding: 10px 12px;
+            background: rgba(255,255,255,0.02);
+            border-radius: 8px;
+            margin-bottom: 6px;
+            align-items: start;
+            border-left: 3px solid transparent;
+        }
+        .event-item.new { animation: slideIn 0.2s; border-left-color: #27ae60; }
+        @keyframes slideIn { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
+        .event-item:hover { background: rgba(255,255,255,0.06); }
+        .event-time { color: #888; font-family: monospace; font-size: 0.8rem; padding-top: 2px; }
+        .event-type { padding: 3px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; text-align: center; }
+        .event-type.create, .event-type.creat, .event-type.mkdir { background: #27ae60; }
+        .event-type.modify { background: #f39c12; }
+        .event-type.delete, .event-type.rmdir, .event-type.trash { background: #e74c3c; }
+        .event-type.move { background: #3498db; }
+        .event-type.truncate, .event-type.link,
+        .event-type.symlink, .event-type.chmod { background: #9b59b6; }
+        .event-info { min-width: 0; }
+        .event-path { color: #ddd; font-family: monospace; font-size: 0.8rem; word-break: break-all; }
+        .event-proc {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 5px;
+            padding: 3px 8px;
+            background: rgba(102, 126, 234, 0.2);
+            border: 1px solid rgba(102, 126, 234, 0.4);
+            border-radius: 4px;
+            font-size: 0.75rem;
+        }
+        .event-proc-icon { font-size: 0.9rem; }
+        .event-proc-name { color: #667eea; font-weight: 500; }
+
+        /* 分析按钮组 */
+        .analyze-btns {
+            display: flex;
+            gap: 5px;
+            margin-top: 7px;
+        }
+        .btn-analyze-ai {
+            padding: 3px 10px;
+            font-size: 0.72rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            transition: opacity 0.2s;
+        }
+        .btn-analyze-ai:hover { opacity: 0.85; }
+        .btn-analyze-offline {
+            padding: 3px 10px;
+            font-size: 0.72rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            background: rgba(255,255,255,0.12);
+            color: #ccc;
+            transition: background 0.2s;
+        }
+        .btn-analyze-offline:hover { background: rgba(255,255,255,0.2); }
+
+        .empty-state { text-align: center; padding: 40px; color: #555; }
+        .empty-state-icon { font-size: 3rem; margin-bottom: 10px; }
+
+        /* AI 设置区 */
+        .ai-settings { padding: 15px; }
+        .ai-settings .field { margin-bottom: 10px; }
+        .ai-settings .field label { display: block; font-size: 0.75rem; color: #888; margin-bottom: 4px; }
+        .ai-settings .field input {
+            width: 100%;
+            padding: 7px 10px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 6px;
+            color: white;
+            font-size: 0.82rem;
+        }
+        .ai-settings .field input:focus { outline: none; border-color: #f093fb; }
+        .ai-status-dot {
+            display: inline-block;
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            background: #555;
+            margin-right: 4px;
+        }
+        .ai-status-dot.ok { background: #27ae60; }
+        .ai-status-txt { font-size: 0.72rem; color: #888; }
+        .preset-btn {
+            padding: 4px 10px;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 5px;
+            color: #bbb;
+            font-size: 0.72rem;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .preset-btn:hover { background: rgba(240,147,251,0.2); border-color: #f093fb; color: #f093fb; }
+        .preset-btn.active { background: rgba(240,147,251,0.25); border-color: #f093fb; color: #f5576c; font-weight: 600; }
+
+        /* 分析结果弹窗 */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 999;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-overlay.visible { display: flex; }
+        .modal {
+            background: #1a1a2e;
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 14px;
+            width: 560px;
+            max-width: 92vw;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+        }
+        .modal-header {
+            padding: 14px 18px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .modal-title { font-size: 1rem; font-weight: 600; }
+        .modal-mode-badge {
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.72rem;
+            font-weight: bold;
+        }
+        .modal-mode-badge.ai { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+        .modal-mode-badge.offline { background: rgba(255,255,255,0.15); color: #ccc; }
+        .modal-close {
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 1.3rem;
+            cursor: pointer;
+            line-height: 1;
+        }
+        .modal-close:hover { color: #fff; }
+        .modal-event-summary {
+            padding: 10px 18px;
+            background: rgba(255,255,255,0.03);
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            font-size: 0.78rem;
+            color: #888;
+            font-family: monospace;
+        }
+        .modal-body {
+            padding: 18px;
+            overflow-y: auto;
+            flex: 1;
+            line-height: 1.75;
+            font-size: 0.88rem;
+        }
+        .modal-body .loading {
+            text-align: center;
+            color: #888;
+            padding: 30px 0;
+        }
+        .modal-body .loading-spinner {
+            display: inline-block;
+            width: 24px; height: 24px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: #f093fb;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-bottom: 10px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .modal-body .error { color: #e74c3c; }
+        .modal-body .result-line { margin-bottom: 12px; }
+        .modal-body strong { color: #a78bfa; }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+
+        @media (max-width: 900px) {
+            .container { flex-direction: column; }
+            .sidebar { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📁 文件监控 <span style="font-size:0.7rem;color:#888;">v8 (FSEvents + lsof + AI)</span></h1>
+        <span id="statusBadge" class="status-badge stopped">已停止</span>
+    </div>
+
+    <div class="container">
+        <div class="main">
+            <!-- 控制栏 -->
+            <div class="card">
+                <div class="control-bar">
+                    <button id="btnStart" class="btn btn-primary" onclick="startMonitor()">▶️ 开始监控</button>
+                    <button id="btnStop" class="btn btn-danger" onclick="stopMonitor()" disabled>⏹️ 停止</button>
+                    <button class="btn btn-secondary" onclick="clearEvents()">🗑️ 清空</button>
+                    <button class="btn btn-secondary" onclick="exportData()">📥 导出</button>
+                    <span id="eventCount" style="margin-left:auto;color:#888;font-size:0.85rem;">0 条</span>
+                    <div class="sse-indicator">
+                        <div id="sseDot" class="sse-dot"></div>
+                        <span id="sseLabel">未连接</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 统计 -->
+            <div class="card">
+                <div class="stats-grid">
+                    <div class="stat-card"><div class="stat-value" id="statTotal">0</div><div class="stat-label">总事件</div></div>
+                    <div class="stat-card"><div class="stat-value" id="statCreate">0</div><div class="stat-label">新建</div></div>
+                    <div class="stat-card"><div class="stat-value" id="statWrite">0</div><div class="stat-label">写入</div></div>
+                    <div class="stat-card"><div class="stat-value" id="statDelete">0</div><div class="stat-label">删除</div></div>
+                </div>
+            </div>
+
+            <!-- 事件列表 -->
+            <div class="card">
+                <div class="card-header">
+                    📋 实时事件
+                    <small style="color:#666;font-weight:normal;font-size:0.75rem;">点击「AI 分析」或「离线分析」可解读任意事件</small>
+                </div>
+                <div id="eventList" class="event-list">
+                    <div class="empty-state"><div class="empty-state-icon">📂</div><p>暂无监控事件</p></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="sidebar">
+            <!-- 筛选 -->
+            <div class="card">
+                <div class="card-header">🔍 筛选</div>
+                <div class="filter-section">
+                    <div class="filter-row">
+                        <div class="filter-group">
+                            <label>关键字（路径）</label>
+                            <input type="text" id="filterKeyword" placeholder="搜索路径..."
+                                   onkeydown="if(event.key==='Enter') applyFilter()">
+                        </div>
+                    </div>
+                    <div class="filter-row">
+                        <div class="filter-group">
+                            <label>进程/应用</label>
+                            <input type="text" id="filterApp" placeholder="Finder, Chrome..."
+                                   onkeydown="if(event.key==='Enter') applyFilter()">
+                        </div>
+                    </div>
+                    <div class="filter-row">
+                        <div class="filter-group" style="flex:2">
+                            <label>事件类型</label>
+                            <div class="filter-tags">
+                                <span class="filter-tag" data-type="^(create|mkdir)$" onclick="toggleType(this)">新建</span>
+                                <span class="filter-tag" data-type="^modify$" onclick="toggleType(this)">写入</span>
+                                <span class="filter-tag" data-type="^(delete|rmdir)$" onclick="toggleType(this)">删除</span>
+                                <span class="filter-tag" data-type="^move$" onclick="toggleType(this)">重命名</span>
+                                <span class="filter-tag" data-type="^trash$" onclick="toggleType(this)">废纸篓</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="filter-actions">
+                        <button class="btn btn-primary" onclick="applyFilter()">🔍 执行筛选</button>
+                        <button class="btn btn-secondary" onclick="clearFilter()">✕ 清除</button>
+                    </div>
+                    <div id="filterHint" class="filter-active-hint">筛选已激活，仅显示匹配事件</div>
+                </div>
+            </div>
+
+            <!-- AI 设置 -->
+            <div class="card">
+                <div class="card-header">
+                    🤖 AI 分析设置
+                    <span>
+                        <span id="aiStatusDot" class="ai-status-dot"></span>
+                        <span id="aiStatusTxt" class="ai-status-txt">未配置</span>
+                    </span>
+                </div>
+                <div class="ai-settings">
+                    <!-- 快速预设 -->
+                    <div style="margin-bottom:12px;">
+                        <div style="font-size:0.72rem;color:#888;margin-bottom:6px;">快速选择服务商（自动填写地址和模型）</div>
+                        <div style="display:flex;flex-wrap:wrap;gap:5px;">
+                            <button class="preset-btn" onclick="applyPreset('deepseek')">Deepseek</button>
+                            <button class="preset-btn" onclick="applyPreset('openai')">OpenAI</button>
+                            <button class="preset-btn" onclick="applyPreset('qwen')">阿里通义</button>
+                            <button class="preset-btn" onclick="applyPreset('kimi')">Kimi</button>
+                            <button class="preset-btn" onclick="applyPreset('glm')">智谱 GLM</button>
+                            <button class="preset-btn" onclick="applyPreset('lingyaai')">灵芽</button>
+                            <button class="preset-btn" onclick="applyPreset('n1n')">n1n</button>
+                            <button class="preset-btn" onclick="applyPreset('openrouter')">OpenRouter</button>
+                            <button class="preset-btn" onclick="applyPreset('ollama')">本地 Ollama</button>
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <label>接口地址</label>
+                        <input type="text" id="aiApiUrl" placeholder="选择上方服务商后自动填写">
+                    </div>
+                    <div class="field">
+                        <label>
+                            API Key
+                            <span id="aiKeyHint" style="color:#667eea;font-size:0.7rem;margin-left:6px;cursor:pointer;text-decoration:underline;" onclick="toggleKeyGuide()">如何获取？</span>
+                        </label>
+                        <input type="password" id="aiApiKey" placeholder="粘贴你的 API Key">
+                    </div>
+                    <!-- Key 获取指引（默认折叠） -->
+                    <div id="keyGuide" style="display:none;background:rgba(255,255,255,0.04);border-radius:8px;padding:10px;margin-bottom:10px;font-size:0.75rem;line-height:1.8;color:#aaa;">
+                        <div style="color:#f093fb;font-weight:600;margin-bottom:4px;">各平台 Key 获取方式</div>
+                        <div>🔵 <b>Deepseek</b>（推荐·价格低）<br>&nbsp;&nbsp;→ <span style="color:#667eea;">platform.deepseek.com</span> 注册 → API Keys → 新建</div>
+                        <div>🟢 <b>阿里通义</b>（国内稳定）<br>&nbsp;&nbsp;→ 百炼控制台 → API Key 管理</div>
+                        <div>🟡 <b>Kimi</b><br>&nbsp;&nbsp;→ platform.moonshot.cn → API Key</div>
+                        <div>⚪ <b>OpenAI</b><br>&nbsp;&nbsp;→ platform.openai.com → API keys</div>
+                        <div>🔴 <b>OpenRouter</b>（可用 Claude/GPT 等多模型）<br>&nbsp;&nbsp;→ openrouter.ai → Keys</div>
+                        <div style="margin-top:6px;color:#666;">填好 Key 后点「保存配置」，之后每次点「AI 分析」即可使用。</div>
+                    </div>
+                    <div class="field">
+                        <label>模型名称 <span style="color:#555;font-weight:normal;">（选服务商后自动填）</span></label>
+                        <input type="text" id="aiModel" placeholder="选择服务商后自动填写">
+                    </div>
+                    <button class="btn btn-primary" style="width:100%;font-size:0.82rem;" onclick="saveAiConfig()">💾 保存配置</button>
+                    <div style="margin-top:8px;font-size:0.7rem;color:#444;line-height:1.6;">
+                        不想配置 AI？点事件上的「📖 离线分析」可直接使用本地规则引擎，无需任何 Key。
+                    </div>
+                </div>
+            </div>
+
+            <!-- 监控路径 -->
+            <div class="card">
+                <div class="card-header">📁 监控路径</div>
+                <div class="path-section">
+                    <div id="pathList"></div>
+                    <div class="custom-path-section">
+                        <label>➕ 添加自定义路径</label>
+                        <div class="custom-path-input">
+                            <input type="text" id="customPath" placeholder="/Users/xxx/项目路径"
+                                   onkeydown="if(event.key==='Enter') addCustomPath()">
+                            <button onclick="addCustomPath()">添加</button>
+                        </div>
+                        <div class="quick-btns">
+                            <button onclick="addQuickPath('~')">~ 主目录</button>
+                            <button onclick="addQuickPath('/Users/zzc/myproject')">项目目录</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 分析结果弹窗 -->
+    <div id="analyzeModal" class="modal-overlay" onclick="closeModal(event)">
+        <div class="modal">
+            <div class="modal-header">
+                <span class="modal-title">🔎 事件分析</span>
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <span id="modalModeBadge" class="modal-mode-badge"></span>
+                    <button class="modal-close" onclick="closeModalDirect()">✕</button>
+                </div>
+            </div>
+            <div id="modalEventSummary" class="modal-event-summary"></div>
+            <div id="modalBody" class="modal-body"></div>
+        </div>
+    </div>
+
+    <script>
+    // ── 状态 ──────────────────────────────────────────────────────
+    let isMonitoring = false;
+    let eventSource = null;
+    let sseReconnectTimer = null;
+    let pollTimer = null;
+    let allEvents = [];
+    let selectedTypes = [];
+    let filterActive = false;
+    let lastPollEventId = 0;
+
+    const DEFAULT_PATHS = [
+        { value: '~/Desktop',     label: '桌面',     fixed: true },
+        { value: '~/Documents',   label: '文档',     fixed: true },
+        { value: '~/Downloads',   label: '下载',     fixed: true },
+        { value: '/Applications', label: '应用程序', fixed: true },
+    ];
+
+    // ── 初始化 ────────────────────────────────────────────────────
+    document.addEventListener('DOMContentLoaded', init);
+
+    async function init() {
+        buildPathList();
+        await loadInitialState();
+        await loadAiConfig();
+    }
+
+    async function loadInitialState() {
+        try {
+            const resp = await fetch('/api/status');
+            const data = await resp.json();
+            allEvents = data.events || [];
+            if (allEvents.length > 0) lastPollEventId = allEvents[allEvents.length - 1].id || 0;
+            if (data.monitoring) {
+                isMonitoring = true;
+                updateUI();
+                connectSSE();
+                startPolling();
+            }
+            if (data.watch_paths && data.watch_paths.length > 0) restoreCheckedPaths(data.watch_paths);
+            renderEvents();
+            updateStats();
+        } catch (e) { console.error('初始化失败:', e); }
+    }
+
+    // ── AI 配置 ───────────────────────────────────────────────────
+    async function loadAiConfig() {
+        try {
+            const resp = await fetch('/api/ai-config');
+            const cfg = await resp.json();
+            document.getElementById('aiApiUrl').value = cfg.api_url || '';
+            document.getElementById('aiModel').value  = cfg.model   || 'gpt-4o';
+            // api_key 服务端返回 *** 或空，不回填密码框
+            updateAiStatus(!!(cfg.api_url && cfg.api_key));
+        } catch {}
+    }
+
+    // ── AI 预设 ───────────────────────────────────────────────────
+    const AI_PRESETS = {
+        deepseek:    { url: 'https://api.deepseek.com/v1/chat/completions',                                  model: 'deepseek-chat',               name: 'Deepseek' },
+        openai:      { url: 'https://api.openai.com/v1/chat/completions',                                    model: 'gpt-4o-mini',                 name: 'OpenAI' },
+        qwen:        { url: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',            model: 'qwen-turbo',                  name: '阿里通义' },
+        kimi:        { url: 'https://api.moonshot.cn/v1/chat/completions',                                   model: 'moonshot-v1-8k',              name: 'Kimi' },
+        glm:         { url: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',                        model: 'glm-4-flash',                 name: '智谱 GLM' },
+        lingyaai:    { url: 'https://api.lingyaai.cn/v1/chat/completions',                                   model: 'claude-sonnet-4-6',           name: '灵芽' },
+        n1n:         { url: 'https://api.n1n.ai/v1/chat/completions',                                        model: 'claude-sonnet-4-6',           name: 'n1n' },
+        openrouter:  { url: 'https://openrouter.ai/api/v1/chat/completions',                                 model: 'anthropic/claude-3-5-sonnet', name: 'OpenRouter' },
+        ollama:      { url: 'http://localhost:11434/v1/chat/completions',                                     model: 'qwen2.5',                     name: '本地 Ollama' },
+    };
+
+    function applyPreset(key) {
+        const p = AI_PRESETS[key];
+        if (!p) return;
+        document.getElementById('aiApiUrl').value = p.url;
+        document.getElementById('aiModel').value  = p.model;
+        document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+        event.target.classList.add('active');
+        showToast(`已选择 ${p.name}，填入 Key 后保存即可`);
+    }
+
+    function toggleKeyGuide() {
+        const el = document.getElementById('keyGuide');
+        el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    }
+
+    async function saveAiConfig() {
+        const url = document.getElementById('aiApiUrl').value.trim();
+        const key = document.getElementById('aiApiKey').value.trim();
+        const model = document.getElementById('aiModel').value.trim();
+        try {
+            await fetch('/api/ai-config', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ api_url: url, api_key: key, model: model })
+            });
+            updateAiStatus(!!(url && key));
+            document.getElementById('aiApiKey').value = '';
+            showToast('AI 配置已保存');
+        } catch (e) { showToast('保存失败: ' + e, true); }
+    }
+
+    function updateAiStatus(configured) {
+        const dot = document.getElementById('aiStatusDot');
+        const txt = document.getElementById('aiStatusTxt');
+        dot.className = 'ai-status-dot' + (configured ? ' ok' : '');
+        txt.textContent = configured ? '已配置' : '未配置';
+    }
+
+    // ── 路径列表 ──────────────────────────────────────────────────
+    function buildPathList() {
+        const container = document.getElementById('pathList');
+        container.innerHTML = '';
+        DEFAULT_PATHS.forEach(p => container.appendChild(makePathItem(p.value, p.label, false, false)));
+        getCustomPaths().forEach(p => container.appendChild(makePathItem(p, '自定义', true, false)));
+    }
+
+    function makePathItem(value, label, removable, checked) {
+        const div = document.createElement('div');
+        div.className = 'path-item';
+        div.dataset.value = value;
+        div.innerHTML = `
+            <input type="checkbox" value="${value}" ${checked ? 'checked' : ''}>
+            <div>
+                <span${label === '自定义' ? ' style="color:#667eea"' : ''}>${label}</span>
+                <br><small>${value}</small>
+            </div>
+            ${removable ? '<button class="remove-btn" onclick="removeCustomPath(this,event)" title="移除">✕</button>' : ''}
+        `;
+        div.addEventListener('click', (e) => {
+            if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON') {
+                const cb = div.querySelector('input');
+                cb.checked = !cb.checked;
+            }
+        });
+        return div;
+    }
+
+    function restoreCheckedPaths(watchPaths) {
+        document.querySelectorAll('#pathList input[type=checkbox]').forEach(cb => cb.checked = false);
+        watchPaths.forEach(serverPath => {
+            let matched = false;
+            document.querySelectorAll('#pathList input[type=checkbox]').forEach(cb => {
+                if (serverPath === cb.value || serverPath.endsWith(cb.value.replace(/^~/, ''))) {
+                    cb.checked = true; matched = true;
+                }
+            });
+            if (!matched) {
+                const item = makePathItem(serverPath, '自定义', true, true);
+                document.getElementById('pathList').appendChild(item);
+                saveCustomPath(serverPath);
+            }
+        });
+    }
+
+    function getCustomPaths() {
+        try { return JSON.parse(localStorage.getItem('fm_custom_paths') || '[]'); } catch { return []; }
+    }
+    function saveCustomPath(path) {
+        const paths = getCustomPaths();
+        if (!paths.includes(path)) { paths.push(path); localStorage.setItem('fm_custom_paths', JSON.stringify(paths)); }
+    }
+    function deleteCustomPath(path) {
+        localStorage.setItem('fm_custom_paths', JSON.stringify(getCustomPaths().filter(p => p !== path)));
+    }
+    function addCustomPath() {
+        const input = document.getElementById('customPath');
+        const path = input.value.trim();
+        if (!path) return;
+        if (document.querySelector(`#pathList [data-value="${CSS.escape(path)}"]`)) { showToast('该路径已存在', true); return; }
+        document.getElementById('pathList').appendChild(makePathItem(path, '自定义', true, true));
+        saveCustomPath(path);
+        input.value = '';
+    }
+    function addQuickPath(path) {
+        document.getElementById('customPath').value = path;
+        addCustomPath();
+    }
+    function removeCustomPath(btn, e) {
+        e.stopPropagation();
+        const item = btn.closest('.path-item');
+        deleteCustomPath(item.dataset.value);
+        item.remove();
+    }
+    function getSelectedPaths() {
+        const paths = [];
+        document.querySelectorAll('#pathList input:checked').forEach(cb => paths.push(cb.value));
+        return paths.length ? paths : ['~'];
+    }
+
+    // ── 监控控制 ──────────────────────────────────────────────────
+    async function startMonitor() {
+        try {
+            const paths = getSelectedPaths();
+            const resp = await fetch('/api/start', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({paths})
+            });
+            const data = await resp.json();
+            if (data.status === 'started' || data.status === 'already_running') {
+                isMonitoring = true; updateUI(); connectSSE(); startPolling();
+            } else {
+                alert('启动失败: ' + (data.message || '请检查 sudo 权限'));
+            }
+        } catch (e) { alert('启动失败: ' + e); }
+    }
+
+    async function stopMonitor() {
+        try {
+            await fetch('/api/stop', {method: 'POST'});
+            isMonitoring = false; updateUI(); disconnectSSE(); stopPolling();
+        } catch {}
+    }
+
+    async function clearEvents() {
+        try {
+            await fetch('/api/clear', {method: 'POST'});
+            allEvents = []; lastPollEventId = 0; renderEvents(); updateStats();
+        } catch {}
+    }
+
+    // ── SSE ───────────────────────────────────────────────────────
+    function connectSSE() {
+        if (eventSource && eventSource.readyState !== EventSource.CLOSED) return;
+        clearTimeout(sseReconnectTimer);
+        eventSource = new EventSource('/stream');
+        setSseStatus('connected');
+        eventSource.onmessage = (e) => {
+            try { const d = JSON.parse(e.data); if (d.type === 'event') appendEvent(d.data); } catch {}
+        };
+        eventSource.onerror = () => {
+            setSseStatus('reconnecting'); disconnectSSE();
+            if (isMonitoring) sseReconnectTimer = setTimeout(connectSSE, 3000);
+        };
+    }
+    function disconnectSSE() {
+        if (eventSource) { eventSource.close(); eventSource = null; }
+        setSseStatus('disconnected');
+    }
+    function setSseStatus(state) {
+        const dot = document.getElementById('sseDot');
+        const label = document.getElementById('sseLabel');
+        dot.className = 'sse-dot';
+        if (state === 'connected')         { dot.classList.add('connected');    label.textContent = '实时'; }
+        else if (state === 'reconnecting') { dot.classList.add('reconnecting'); label.textContent = '重连中'; }
+        else                               { label.textContent = '未连接'; }
+    }
+
+    // ── 轮询兜底 ──────────────────────────────────────────────────
+    function startPolling() { stopPolling(); pollTimer = setInterval(pollMissedEvents, 4000); }
+    function stopPolling()  { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+
+    async function pollMissedEvents() {
+        if (!isMonitoring) return;
+        try {
+            const resp = await fetch('/api/events?limit=500&offset=0');
+            const data = await resp.json();
+            const serverEvents = data.events || [];
+            if (!serverEvents.length) return;
+            const lastId = serverEvents[serverEvents.length - 1].id;
+            if (lastId === lastPollEventId) return;
+            const existingIds = new Set(allEvents.map(e => e.id));
+            const newOnes = serverEvents.filter(e => !existingIds.has(e.id));
+            if (newOnes.length > 0) {
+                newOnes.forEach(e => allEvents.push(e));
+                if (allEvents.length > 2000) allEvents = allEvents.slice(-2000);
+                lastPollEventId = lastId;
+                renderEvents(); updateStats();
+            }
+        } catch {}
+    }
+
+    function appendEvent(event) {
+        if (allEvents.some(e => e.id === event.id)) return;
+        allEvents.push(event);
+        if (allEvents.length > 2000) allEvents.shift();
+        lastPollEventId = Math.max(lastPollEventId, event.id || 0);
+        renderEvents(); updateStats();
+    }
+
+    // ── 筛选 ─────────────────────────────────────────────────────
+    function applyFilter() {
+        const kw  = document.getElementById('filterKeyword').value.trim().toLowerCase();
+        const app = document.getElementById('filterApp').value.trim().toLowerCase();
+        filterActive = !!(kw || app || selectedTypes.length);
+        document.getElementById('filterHint').classList.toggle('visible', filterActive);
+        renderEvents();
+    }
+    function clearFilter() {
+        document.getElementById('filterKeyword').value = '';
+        document.getElementById('filterApp').value = '';
+        selectedTypes = [];
+        document.querySelectorAll('.filter-tag').forEach(t => t.classList.remove('active'));
+        filterActive = false;
+        document.getElementById('filterHint').classList.remove('visible');
+        renderEvents();
+    }
+    function toggleType(el) {
+        const type = el.dataset.type;
+        el.classList.toggle('active');
+        selectedTypes = selectedTypes.includes(type)
+            ? selectedTypes.filter(t => t !== type)
+            : [...selectedTypes, type];
+    }
+    function getFilteredEvents() {
+        if (!filterActive) return allEvents;
+        const kw  = document.getElementById('filterKeyword').value.trim().toLowerCase();
+        const app = document.getElementById('filterApp').value.trim().toLowerCase();
+        return allEvents.filter(e => {
+            if (selectedTypes.length > 0) {
+                const opMatch = selectedTypes.some(t => new RegExp(t).test(e.op));
+                if (!opMatch) return false;
+            }
+            if (kw  && !(e.path || '').toLowerCase().includes(kw))  return false;
+            if (app && !(e.proc || '').toLowerCase().includes(app)) return false;
+            return true;
+        });
+    }
+
+    // ── 渲染 ─────────────────────────────────────────────────────
+    function renderEvents() {
+        const container = document.getElementById('eventList');
+        const filtered  = getFilteredEvents();
+        document.getElementById('eventCount').textContent =
+            filterActive ? `${filtered.length} / ${allEvents.length} 条` : `${allEvents.length} 条`;
+
+        if (filtered.length === 0) {
+            container.innerHTML = filterActive
+                ? '<div class="empty-state"><div class="empty-state-icon">🔍</div><p>无匹配事件</p></div>'
+                : '<div class="empty-state"><div class="empty-state-icon">📂</div><p>暂无监控事件</p></div>';
+            return;
+        }
+
+        // 把事件存到 window 方便按钮回调读取
+        window._renderedEvents = {};
+        const html = filtered.slice().reverse().map((e, i) => {
+            window._renderedEvents[e.id] = e;
+            return `<div class="event-item ${i === 0 ? 'new' : ''}">
+                <span class="event-time">${e.timestamp}</span>
+                <span class="event-type ${e.op}">${e.op_cn}</span>
+                <div class="event-info">
+                    <div class="event-path" title="${escHtml(e.path)}">${escHtml(e.path_short || e.path)}</div>
+                    <div class="event-proc">
+                        <span class="event-proc-icon">👤</span>
+                        <span class="event-proc-name">${escHtml(e.proc || 'unknown')}</span>
+                    </div>
+                    <div class="analyze-btns">
+                        <button class="btn-analyze-ai"
+                            onclick="analyzeEvent(${e.id},'ai')">🤖 AI 分析</button>
+                        <button class="btn-analyze-offline"
+                            onclick="analyzeEvent(${e.id},'offline')">📖 离线分析</button>
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+        container.innerHTML = html;
+    }
+
+    function escHtml(s) {
+        return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function updateStats() {
+        const stats = { total: allEvents.length, create: 0, write: 0, delete: 0 };
+        allEvents.forEach(e => {
+            const op = e.op || '';
+            if (/create|mkdir/.test(op))          stats.create++;
+            else if (/modify/.test(op))           stats.write++;
+            else if (/delete|rmdir|trash/.test(op)) stats.delete++;
+        });
+        document.getElementById('statTotal').textContent  = stats.total;
+        document.getElementById('statCreate').textContent = stats.create;
+        document.getElementById('statWrite').textContent  = stats.write;
+        document.getElementById('statDelete').textContent = stats.delete;
+    }
+
+    function updateUI() {
+        const badge = document.getElementById('statusBadge');
+        document.getElementById('btnStart').disabled = isMonitoring;
+        document.getElementById('btnStop').disabled  = !isMonitoring;
+        badge.className   = 'status-badge ' + (isMonitoring ? 'running' : 'stopped');
+        badge.textContent = isMonitoring ? '监控中' : '已停止';
+        if (!isMonitoring) setSseStatus('disconnected');
+    }
+
+    async function exportData() {
+        try {
+            const resp = await fetch('/api/export');
+            const data = await resp.json();
+            const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `file_monitor_${new Date().toISOString().slice(0,10)}.json`;
+            a.click();
+        } catch {}
+    }
+
+    // ── AI 分析 ───────────────────────────────────────────────────
+    async function analyzeEvent(eventId, mode) {
+        const event = window._renderedEvents && window._renderedEvents[eventId];
+        if (!event) { showToast('找不到事件数据', true); return; }
+
+        // 打开弹窗，先显示加载态
+        const modal = document.getElementById('analyzeModal');
+        const badge = document.getElementById('modalModeBadge');
+        const summary = document.getElementById('modalEventSummary');
+        const body = document.getElementById('modalBody');
+
+        badge.className = 'modal-mode-badge ' + mode;
+        badge.textContent = mode === 'ai' ? '🤖 AI 分析' : '📖 离线分析';
+        summary.textContent = `${event.timestamp}  ${event.op_cn}  ${event.path_short || event.path}  进程: ${event.proc || 'unknown'}`;
+        body.innerHTML = `<div class="loading"><div class="loading-spinner"></div><div>分析中…</div></div>`;
+        modal.classList.add('visible');
+
+        try {
+            const resp = await fetch('/api/analyze', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ event, mode })
+            });
+            const data = await resp.json();
+
+            if (data.error) {
+                body.innerHTML = `<div class="error">❌ ${escHtml(data.error)}</div>`;
+                return;
+            }
+
+            // 把 **bold** 转 <strong>，换行转段落
+            const rendered = (data.result || '')
+                .split('\n\n')
+                .map(para => {
+                    const line = para.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+                    return `<div class="result-line">${line}</div>`;
+                })
+                .join('');
+            body.innerHTML = rendered;
+        } catch (e) {
+            body.innerHTML = `<div class="error">❌ 请求失败: ${escHtml(String(e))}</div>`;
+        }
+    }
+
+    function closeModal(e) {
+        if (e.target === document.getElementById('analyzeModal')) closeModalDirect();
+    }
+    function closeModalDirect() {
+        document.getElementById('analyzeModal').classList.remove('visible');
+    }
+
+    // ── Toast ─────────────────────────────────────────────────────
+    function showToast(msg, isError) {
+        const t = document.createElement('div');
+        t.textContent = msg;
+        Object.assign(t.style, {
+            position: 'fixed', bottom: '24px', right: '24px',
+            padding: '10px 18px', borderRadius: '8px',
+            background: isError ? '#c0392b' : '#27ae60',
+            color: '#fff', fontSize: '0.85rem',
+            zIndex: '9999', boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+            transition: 'opacity 0.4s'
+        });
+        document.body.appendChild(t);
+        setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 400); }, 2500);
+    }
+    </script>
+</body>
+</html>
